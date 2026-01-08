@@ -19,10 +19,11 @@ The **R-HRM** (Recursive Hierarchical Reasoning Model) diverges from traditional
     *   **Brain Pruning**: Uses aggressive `Weight Decay` (0.1) to force the recursive weights to learn generalizable rules rather than memorizing data.
 
 2.  **Multi-Head Latent Attention (MLA)**:
+    *   plase full in the "login(token="fill") # needed for huggingface datasets"
     *   Optimizes memory bandwidth by compressing Key-Value pairs into latent vectors (`d_latent`) before projection.
     *   **Benefit**: Faster inference and lower VRAM usage during generation.
 
-3.  **Modern Enhancements**:
+4.  **Modern Enhancements**:
     *   **RMSNorm**: Replaces LayerNorm for superior gradient stability.
     *   **SwiGLU**: A gated activation function that allows the Feed-Forward Network to select which information to pass through, mimicking biological gating.
     *   **Rotary Embeddings (RoPE-compatible logic)**: Implicitly handled via position-aware projections.
