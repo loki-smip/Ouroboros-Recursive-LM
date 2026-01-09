@@ -9,22 +9,33 @@ login(token="fill") # needed for huggingface datasets
 from torch.amp import autocast, GradScaler
 
 def train():
+    # Memory Fragmentation Fix
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
     # --- Auto-Detect Device & Config ---
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device Detected: {device.upper()}")
     
     if device == "cuda":
-        # GPU Config (Colab T4/A100) - "Pro Mode"
-        print(">> GPU Mode Activated: High Performance Config")
-        BATCH_SIZE = 16   # Increased from 4
-        BLOCK_SIZE = 256  # Standard
-        D_MODEL = 512     # Increased from 256
-        NUM_HEADS = 8
-        NUM_LAYERS = 8    # Deeper
-        GRAD_ACCUM_STEPS = 2 # Effective Batch = 32
+        # GPU Config (Colab T4/A100) - "The Beast Mode"
+        print(">> GPU Mode Activated: THE BEAST CONFIG")
+        # Gradient Checkpointing allows massive batch/depth
+        # Reduced Batch to 32 to fix OOM (3.06GB alloc failed)
+        BATCH_SIZE = 32   
+        BLOCK_SIZE = 256  
+        D_MODEL = 768     
+        NUM_HEADS = 12    
+        NUM_LAYERS = 12   
+        GRAD_ACCUM_STEPS = 2 # Effective Batch = 64 (32 * 2)
         
-        # Enable Mixed Precision for speed
+        # Enable Mixed Precision
         use_amp = True
+        
+        # [CRITICAL UPDATE]
+        # Torch.compile (JIT) struggles with RECURSIVE loops + Checkpointing.
+        # It caused the "triton_red_fused" crash you saw.
+        # We disable it to ensure stability. Flash Attn + TF32 is already fast enough.
+        use_compile = False 
     else:
         # CPU Config (Local) - "Lite Mode"
         print(">> CPU Mode Activated: Efficient Config")
@@ -33,19 +44,20 @@ def train():
         D_MODEL = 256
         NUM_HEADS = 4
         NUM_LAYERS = 4
-        GRAD_ACCUM_STEPS = 4 # High accumulation for stability
+        GRAD_ACCUM_STEPS = 4 
         
         use_amp = False
+        use_compile = False
 
     LEARNING_RATE = 3e-4
-    MAX_TOKENS = 500_000_000 # Increased to 500M for overnight run
-    PATIENCE = 20 # Increased patience to avoid premature stop
+    MAX_TOKENS = 500_000_000 
+    PATIENCE = 20 
     EVAL_INTERVAL = 100 if device == "cuda" else 50
     EVAL_STEPS = 20 
 
     print(f"Config: B={BATCH_SIZE}, T={BLOCK_SIZE}, D={D_MODEL}, L={NUM_LAYERS}, Accum={GRAD_ACCUM_STEPS}, AMP={use_amp}")
-
-    # --- Setup ---
+    
+    # ... (Loaders code) ...
     # Prepare Data
     train_loader, val_loader, vocab_size = get_loaders(
         batch_size=BATCH_SIZE, 
@@ -64,11 +76,32 @@ def train():
         d_ff=D_MODEL * 4,
         num_layers=NUM_LAYERS,
         dropout=0.1,
-        max_len=BLOCK_SIZE
+        # rop_embedding handled internally now, just block size logic if needed
     ).to(device)
     
+    # Activate Advanced Features
+    # Activate Advanced Features
+    if device == "cuda":
+        # Enable TF32 (huge speedup on Ampere+)
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+        print(">> TF32 & CuDNN Benchmark ENABLED (Speedup)")
+        
+        model.use_checkpointing = True
+        print(">> Gradient Checkpointing ENABLED (VRAM Saved)")
+        
+        if use_compile:
+            print(">> Compiling Model (torch.compile)...")
+            try:
+                model = torch.compile(model)
+                print(">> Model Compiled! (Expect start-up delay, then 2x speed)")
+            except Exception as e:
+                print(f"Compilation skipped (Not supported on this env): {e}")
+
     # Optimizer with Weight Decay (Brain Pruning)
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.1)
+    # Fused AdamW is faster on CUDA
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.1, fused=(device=="cuda"))
     
     scaler = GradScaler(enabled=use_amp) 
     

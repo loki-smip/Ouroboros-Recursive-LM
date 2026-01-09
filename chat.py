@@ -121,14 +121,11 @@ def chat():
             detected_d_model = state_dict["token_embedding.weight"].shape[1]
             print(f"Auto-Detected D_MODEL: {detected_d_model}")
         else:
-            detected_d_model = 512 if "cuda" in device else 256
+            detected_d_model = 768 if "cuda" in device else 256
             
-        # Deduce BLOCK_SIZE (max_len) from position embedding: [max_len, d_model]
-        if "position_embedding.weight" in state_dict:
-            detected_max_len = state_dict["position_embedding.weight"].shape[0]
-            print(f"Auto-Detected MAX_LEN: {detected_max_len}")
-        else:
-            detected_max_len = 256 # Fallback
+        # RoPE has no max len, but we need a block size for inference loop
+        # Default to standard 2048 or train config
+        detected_max_len = 2048 
             
         # Set Config based on D_MODEL
         D_MODEL = detected_d_model
@@ -140,7 +137,7 @@ def chat():
         elif D_MODEL == 256:
             NUM_HEADS = 4
             NUM_LAYERS = 4
-        elif D_MODEL == 768: 
+        elif D_MODEL == 768: # The Beast
             NUM_HEADS = 12
             NUM_LAYERS = 12
         else:
@@ -167,6 +164,7 @@ def chat():
         print("Model weights loaded successfully.")
     except Exception as e:
         print(f"Error loading state_dict: {e}")
+        print("Tip: If size mismatch, check if you trained effectively with RoPE/Head changes.")
         return
 
     model.eval()
